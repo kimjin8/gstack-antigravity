@@ -17,6 +17,15 @@ import * as fs from 'fs';
 import { spawn } from 'child_process';
 import * as path from 'path';
 
+function withTempDir(fn: (root: string) => void): void {
+  const root = fs.mkdtempSync('/tmp/gstack-cli-');
+  try {
+    fn(root);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 let testServer: ReturnType<typeof startTestServer>;
 let bm: BrowserManager;
 let baseUrl: string;
@@ -425,23 +434,62 @@ describe('Status', () => {
 
 describe('CLI server script resolution', () => {
   test('prefers adjacent browse/src/server.ts for compiled project installs', () => {
-    const root = fs.mkdtempSync('/tmp/gstack-cli-');
-    const execPath = path.join(root, '.claude/skills/gstack/browse/dist/browse');
-    const serverPath = path.join(root, '.claude/skills/gstack/browse/src/server.ts');
+    withTempDir((root) => {
+      const execPath = path.join(root, '.claude/skills/gstack/browse/dist/browse');
+      const serverPath = path.join(root, '.claude/skills/gstack/browse/src/server.ts');
 
-    fs.mkdirSync(path.dirname(execPath), { recursive: true });
-    fs.mkdirSync(path.dirname(serverPath), { recursive: true });
-    fs.writeFileSync(serverPath, '// test server\n');
+      fs.mkdirSync(path.dirname(execPath), { recursive: true });
+      fs.mkdirSync(path.dirname(serverPath), { recursive: true });
+      fs.writeFileSync(serverPath, '// test server\n');
 
+      const resolved = resolveServerScript(
+        { HOME: path.join(root, 'empty-home') },
+        '$bunfs/root',
+        execPath
+      );
+
+      expect(resolved).toBe(serverPath);
+    });
+  });
+
+  test('BROWSE_SERVER_SCRIPT env var takes priority over valid dev-mode path', () => {
+    withTempDir((root) => {
+      const serverPath = path.join(root, 'server.ts');
+      fs.writeFileSync(serverPath, '// test server\n');
+
+      const resolved = resolveServerScript(
+        { BROWSE_SERVER_SCRIPT: '/custom/server.ts' },
+        root,
+        '/fake/exec'
+      );
+
+      expect(resolved).toBe('/custom/server.ts');
+    });
+  });
+
+  test('dev mode resolves from metaDir when server.ts exists', () => {
+    withTempDir((root) => {
+      const serverPath = path.join(root, 'server.ts');
+      fs.writeFileSync(serverPath, '// test server\n');
+
+      const resolved = resolveServerScript(
+        {},
+        root,
+        '/fake/exec'
+      );
+
+      expect(resolved).toBe(serverPath);
+    });
+  });
+
+  test('falls back to $HOME legacy path when nothing matches', () => {
     const resolved = resolveServerScript(
-      { HOME: path.join(root, 'empty-home') },
+      { HOME: '/fake/home' },
       '$bunfs/root',
-      execPath
+      '/nonexistent/browse'
     );
 
-    expect(resolved).toBe(serverPath);
-
-    fs.rmSync(root, { recursive: true, force: true });
+    expect(resolved).toBe('/fake/home/.claude/skills/gstack/browse/src/server.ts');
   });
 });
 
@@ -458,12 +506,13 @@ describe('CLI lifecycle', () => {
 
     const cliPath = path.resolve(__dirname, '../src/cli.ts');
     const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+      const { CONDUCTOR_PORT, BROWSE_PORT, ...cleanEnv } = process.env;
       const proc = spawn('bun', ['run', cliPath, 'status'], {
         timeout: 15000,
         env: {
-          ...process.env,
+          ...cleanEnv,
           BROWSE_STATE_FILE: stateFile,
-          BROWSE_PORT_START: '9520',
+          BROWSE_PORT_START: String(19000 + Math.floor(Math.random() * 500)),
         },
       });
       let stdout = '';
@@ -486,6 +535,96 @@ describe('CLI lifecycle', () => {
     expect(result.stdout).toContain('Status: healthy');
     expect(result.stderr).toContain('Starting server');
   }, 20000);
+
+  test('CONDUCTOR_PORT derives deterministic browse port', async () => {
+    const conductorPort = 64000;
+    const expectedBrowsePort = conductorPort - 45600; // 18400
+    const stateFile = `/tmp/browse-test-conductor-${Date.now()}.json`;
+
+    const cliPath = path.resolve(__dirname, '../src/cli.ts');
+    const { CONDUCTOR_PORT, BROWSE_PORT, ...cleanEnv } = process.env;
+    const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+      const proc = spawn('bun', ['run', cliPath, 'status'], {
+        timeout: 15000,
+        env: {
+          ...cleanEnv,
+          CONDUCTOR_PORT: String(conductorPort),
+          BROWSE_STATE_FILE: stateFile,
+        },
+      });
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', (d) => stdout += d.toString());
+      proc.stderr.on('data', (d) => stderr += d.toString());
+      proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    });
+
+    // Read state file to verify the server started on the derived port
+    let serverPort: number | null = null;
+    let serverPid: number | null = null;
+    if (fs.existsSync(stateFile)) {
+      const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+      serverPort = state.port;
+      serverPid = state.pid;
+      fs.unlinkSync(stateFile);
+    }
+    if (serverPid) {
+      try { process.kill(serverPid, 'SIGTERM'); } catch {}
+    }
+
+    expect(result.code).toBe(0);
+    expect(serverPort).toBe(expectedBrowsePort);
+  }, 20000);
+});
+
+// ─── Setup script rebuild detection ─────────────────────────────
+
+describe('Setup script', () => {
+  const setupPath = path.resolve(__dirname, '../../setup');
+  const binaryPath = path.resolve(__dirname, '../dist/browse');
+
+  function runSetup(): Promise<{ code: number; stdout: string; stderr: string }> {
+    return new Promise((resolve) => {
+      const proc = spawn('bash', [setupPath], {
+        timeout: 60000,
+        cwd: path.resolve(__dirname, '../..'),
+      });
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', (d) => stdout += d.toString());
+      proc.stderr.on('data', (d) => stderr += d.toString());
+      proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    });
+  }
+
+  test('skips rebuild when binary is fresh, rebuilds when source is newer', async () => {
+    // First run — ensure binary exists
+    const first = await runSetup();
+    expect(first.code).toBe(0);
+    expect(fs.existsSync(binaryPath)).toBe(true);
+
+    const freshMtime = fs.statSync(binaryPath).mtimeMs;
+
+    // Second run — nothing changed, should skip
+    const second = await runSetup();
+    expect(second.code).toBe(0);
+    const output = second.stdout + second.stderr;
+    expect(output).not.toContain('Building');
+
+    // Touch a source file to trigger rebuild
+    const srcFile = path.resolve(__dirname, '../src/server.ts');
+    const now = new Date();
+    fs.utimesSync(srcFile, now, now);
+
+    // Third run — source is newer, should rebuild
+    const third = await runSetup();
+    expect(third.code).toBe(0);
+    const rebuildOutput = third.stdout + third.stderr;
+    expect(rebuildOutput).toContain('Building');
+
+    const rebuiltMtime = fs.statSync(binaryPath).mtimeMs;
+    expect(rebuiltMtime).toBeGreaterThan(freshMtime);
+  }, 60000);
 });
 
 // ─── Buffer bounds ──────────────────────────────────────────────
