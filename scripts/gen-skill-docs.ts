@@ -194,6 +194,7 @@ branch name wherever the instructions say "the base branch."
 
 ---`;
 }
+
 function generateQAMethodology(): string {
   return `## Modes
 
