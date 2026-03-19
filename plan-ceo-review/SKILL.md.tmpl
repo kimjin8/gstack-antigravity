@@ -162,22 +162,27 @@ Describe the ideal end state of this system 12 months from now. Does this plan m
 
 After the opt-in/cherry-pick ceremony, write the plan to disk so the vision and decisions survive beyond this conversation. Only run this step for EXPANSION and SELECTIVE EXPANSION modes.
 
-```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG/ceo-plans
-```
-
-Before writing, check for existing CEO plans in the ceo-plans/ directory. If any are >30 days old or their branch has been merged/deleted, offer to archive them:
+{{ARTIFACT_SETUP}}
 
 ```bash
-mkdir -p ~/.gstack/projects/$SLUG/ceo-plans/archive
-# For each stale plan: mv ~/.gstack/projects/$SLUG/ceo-plans/{old-plan}.md ~/.gstack/projects/$SLUG/ceo-plans/archive/
+mkdir -p $PROJECTS_DIR/$SLUG/plans/ceo
 ```
 
-Write to `~/.gstack/projects/$SLUG/ceo-plans/{date}-{feature-slug}.md` using this format:
+Before writing, check for existing CEO plans in the plans/ceo/ directory. If any are >30 days old or their branch has been merged/deleted, offer to archive them:
+
+```bash
+mkdir -p $PROJECTS_DIR/$SLUG/plans/ceo/archive
+# For each stale plan: mv $PROJECTS_DIR/$SLUG/plans/ceo/{old-plan}.md $PROJECTS_DIR/$SLUG/plans/ceo/archive/
+```
+
+Write to `$PROJECTS_DIR/$SLUG/plans/ceo/$DATE-{feature-slug}.md` using this format:
 
 ```markdown
 ---
+type: ceo-plan
+branch: {branch}
+date: {YYYY-MM-DD}
+skill: plan-ceo-review
 status: ACTIVE
 ---
 # CEO Plan: {Feature Name}
@@ -207,6 +212,11 @@ Repo: {owner/repo}
 ```
 
 Derive the feature slug from the plan being reviewed (e.g., "user-dashboard", "auth-refactor"). Use the date in YYYY-MM-DD format.
+
+After writing the CEO plan, register it in the manifest:
+```bash
+~/.claude/skills/gstack/bin/gstack-manifest-append ceo-plan "plans/ceo/$DATE-{feature-slug}.md" plan-ceo-review "$BRANCH"
+```
 
 ### 0E. Temporal Interrogation (EXPANSION, SELECTIVE EXPANSION, and HOLD modes)
 Think ahead to implementation: What decisions will need to be made during implementation that should be resolved NOW in the plan?
@@ -592,8 +602,8 @@ After producing the Completion Summary above, persist the review result:
 
 ```bash
 eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG
-echo '{"skill":"plan-ceo-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"mode":"MODE"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+mkdir -p $PROJECTS_DIR/$SLUG/reviews
+echo '{"skill":"plan-ceo-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"mode":"MODE"}' >> $PROJECTS_DIR/$SLUG/reviews/$BRANCH.jsonl
 ```
 
 Before running this command, substitute the placeholder values from the Completion Summary you just produced:
@@ -611,7 +621,7 @@ At the end of the review, if the vision produced a compelling feature direction,
 
 "The vision from this review produced {N} accepted scope expansions. Want to promote it to a design doc in the repo?"
 - **A)** Promote to `docs/designs/{FEATURE}.md` (committed to repo, visible to the team)
-- **B)** Keep in `~/.gstack/projects/` only (local, personal reference)
+- **B)** Keep in `$PROJECTS_DIR/$SLUG/plans/ceo/` only (local, personal reference)
 - **C)** Skip
 
 If promoted, copy the CEO plan content to `docs/designs/{FEATURE}.md` (create the directory if needed) and update the `status` field in the original CEO plan from `ACTIVE` to `PROMOTED`.

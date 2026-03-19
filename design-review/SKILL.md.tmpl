@@ -207,11 +207,29 @@ Write the report to both local and project-scoped locations:
 **Local:** `.gstack/design-reports/design-audit-{domain}-{YYYY-MM-DD}.md`
 
 **Project-scoped:**
+
+{{ARTIFACT_SETUP}}
+
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
-mkdir -p ~/.gstack/projects/$SLUG
+mkdir -p $PROJECTS_DIR/$SLUG/reports
+FILE="$PROJECTS_DIR/$SLUG/reports/design-{domain}-$DATE.md"
+[ -f "$FILE" ] && FILE="$PROJECTS_DIR/$SLUG/reports/design-{domain}-$DATE-$(date +%H%M).md"
 ```
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-audit-{datetime}.md`
+
+Write to the file path resolved above. Include YAML frontmatter:
+```yaml
+---
+type: design-audit
+branch: {branch}
+date: {YYYY-MM-DD}
+skill: design-review
+---
+```
+
+After writing, register in manifest:
+```bash
+~/.claude/skills/gstack/bin/gstack-manifest-append design-audit "reports/$(basename "$FILE")" design-review "$BRANCH"
+```
 
 **Per-finding additions** (beyond standard design audit report):
 - Fix Status: verified / best-effort / reverted / deferred
