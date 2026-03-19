@@ -653,7 +653,28 @@ EOF
 )"
 ```
 
-**Output the PR URL** — this should be the final output the user sees.
+**Output the PR URL** — then proceed to Step 8.5.
+
+---
+
+## Step 8.5: Auto-invoke /document-release
+
+After the PR is created, automatically sync project documentation. Read the
+`document-release/SKILL.md` skill file (adjacent to this skill's directory) and
+execute its full workflow:
+
+1. Read the `/document-release` skill: `cat ${CLAUDE_SKILL_DIR}/../document-release/SKILL.md`
+2. Follow its instructions — it reads all .md files in the project, cross-references
+   the diff, and updates anything that drifted (README, ARCHITECTURE, CONTRIBUTING,
+   CLAUDE.md, TODOS, etc.)
+3. If any docs were updated, commit the changes and push to the same branch:
+   ```bash
+   git add -A && git commit -m "docs: sync documentation with shipped changes" && git push
+   ```
+4. If no docs needed updating, say "Documentation is current — no updates needed."
+
+This step is automatic. Do not ask the user for confirmation. The goal is zero-friction
+doc updates — the user runs `/ship` and documentation stays current without a separate command.
 
 ---
 
@@ -670,4 +691,4 @@ EOF
 - **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence (inline diff, code references, re-rank suggestion). Never post vague replies.
 - **Never push without fresh verification evidence.** If code changed after Step 3 tests, re-run before pushing.
 - **Step 3.4 generates coverage tests.** They must pass before committing. Never commit failing tests.
-- **The goal is: user says `/ship`, next thing they see is the review + PR URL.**
+- **The goal is: user says `/ship`, next thing they see is the review + PR URL + auto-synced docs.**

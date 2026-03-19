@@ -442,17 +442,9 @@ Shipped as v0.5.0 on main. Includes `/plan-design-review` (report-only design au
 
 ## Document-Release
 
-### Auto-invoke /document-release from /ship
+### Auto-invoke /document-release from /ship — SHIPPED
 
-**What:** Add Step 8.5 to /ship that reads document-release/SKILL.md and executes the doc update workflow after creating the PR.
-
-**Why:** Zero-friction doc updates — user runs /ship and docs are automatically current. No extra command to remember.
-
-**Context:** /ship currently ends at Step 8 (PR URL output). Step 8.5 would continue into the document-release workflow. Same pattern as /ship calling /review's checklist in Step 3.5.
-
-**Effort:** S
-**Priority:** P1
-**Depends on:** /document-release shipped
+Shipped in v0.8.3. Step 8.5 added to `/ship` — after creating the PR, `/ship` automatically reads `document-release/SKILL.md` and executes the doc update workflow. Zero-friction doc updates.
 
 ### `{{DOC_VOICE}}` shared resolver
 
