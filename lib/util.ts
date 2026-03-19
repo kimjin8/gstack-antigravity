@@ -88,7 +88,7 @@ export function getRemoteSlug(): string {
     // SSH:   git@github.com:owner/repo.git → owner-repo
     // HTTPS: https://github.com/owner/repo.git → owner-repo
     const match = url.match(/[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
-    if (match) return `${match[1]}-${match[2]}`;
+    if (match) return `${match[1]}-${match[2]}`.toLowerCase();
     throw new Error('unparseable');
   } catch {
     const root = getGitRoot();
