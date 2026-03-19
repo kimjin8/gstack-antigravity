@@ -1120,3 +1120,40 @@ describe('QA report template', () => {
     expect(content).toContain('**Precondition:**');
   });
 });
+
+// --- Trigger phrase validation ---
+
+describe('Skill trigger phrases', () => {
+  // Skills that must have "Use when" trigger phrases in their description.
+  // Excluded: root gstack (browser tool), gstack-upgrade (gstack-specific),
+  // setup-browser-cookies (utility), humanizer (text tool), browse (subskill of gstack)
+  const SKILLS_REQUIRING_TRIGGERS = [
+    'qa', 'qa-only', 'ship', 'review', 'debug', 'office-hours',
+    'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
+    'design-review', 'design-consultation', 'retro', 'document-release',
+  ];
+
+  for (const skill of SKILLS_REQUIRING_TRIGGERS) {
+    test(`${skill}/SKILL.md has "Use when" trigger phrases`, () => {
+      const skillPath = path.join(ROOT, skill, 'SKILL.md');
+      if (!fs.existsSync(skillPath)) return;
+      const content = fs.readFileSync(skillPath, 'utf-8');
+      // Extract description from frontmatter
+      const frontmatterEnd = content.indexOf('---', 4);
+      const frontmatter = content.slice(0, frontmatterEnd);
+      expect(frontmatter).toMatch(/Use when/i);
+    });
+  }
+
+  // Skills with proactive triggers should have "Proactively suggest" in description
+  for (const skill of SKILLS_REQUIRING_TRIGGERS) {
+    test(`${skill}/SKILL.md has "Proactively suggest" phrase`, () => {
+      const skillPath = path.join(ROOT, skill, 'SKILL.md');
+      if (!fs.existsSync(skillPath)) return;
+      const content = fs.readFileSync(skillPath, 'utf-8');
+      const frontmatterEnd = content.indexOf('---', 4);
+      const frontmatter = content.slice(0, frontmatterEnd);
+      expect(frontmatter).toMatch(/Proactively suggest/i);
+    });
+  }
+});
