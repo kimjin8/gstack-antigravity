@@ -1,5 +1,9 @@
 -- gstack community tier schema
--- Adds authenticated backup, benchmarks, and email to the telemetry platform.
+-- Adds authenticated backup, benchmarks, email, and richer error telemetry.
+
+-- Add error context columns to telemetry_events
+ALTER TABLE telemetry_events ADD COLUMN error_message TEXT;
+ALTER TABLE telemetry_events ADD COLUMN failed_step TEXT;
 
 -- Add columns to installations for backup + email + auth identity
 ALTER TABLE installations ADD COLUMN user_id UUID;
