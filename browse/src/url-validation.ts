@@ -7,6 +7,7 @@ const BLOCKED_METADATA_HOSTS = new Set([
   '169.254.169.254',  // AWS/GCP/Azure instance metadata
   'fd00::',           // IPv6 unique local (metadata in some cloud setups)
   'metadata.google.internal', // GCP metadata
+  'metadata.azure.internal',  // Azure IMDS
 ]);
 
 /**

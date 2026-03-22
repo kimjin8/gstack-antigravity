@@ -42,6 +42,10 @@ describe('validateNavigationUrl', () => {
     expect(() => validateNavigationUrl('http://metadata.google.internal/computeMetadata/v1/')).toThrow(/cloud metadata/i);
   });
 
+  it('blocks Azure metadata hostname', () => {
+    expect(() => validateNavigationUrl('http://metadata.azure.internal/metadata/instance')).toThrow(/cloud metadata/i);
+  });
+
   it('blocks metadata hostname with trailing dot', () => {
     expect(() => validateNavigationUrl('http://metadata.google.internal./computeMetadata/v1/')).toThrow(/cloud metadata/i);
   });
