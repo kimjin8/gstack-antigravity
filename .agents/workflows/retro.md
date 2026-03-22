@@ -23,3 +23,9 @@ Load identity: [persona-gstack-retro.md](file:///Users/kimjin/Library/CloudStora
 1. Load prior retro history and calculate deltas (if applicable).
 2. Save the JSON snapshot to `.context/retros/`.
 3. Synthesize the narrative: Tweetable summary, Wins, Improvements, Habits.
+
+## Phase 5: Global Retrospective (Optional)
+If `/retro global` is invoked:
+1. **Discovery:** Run the global discovery script across the local filesystem.
+2. **Aggregation:** Run the data gathering phase for each discovered repository.
+3. **Synthesis:** Produce a cross-project executive summary.

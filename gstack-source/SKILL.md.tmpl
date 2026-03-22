@@ -14,6 +14,7 @@ description: |
   - Reviewing a plan (strategy) → suggest /plan-ceo-review
   - Reviewing a plan (architecture) → suggest /plan-eng-review
   - Reviewing a plan (design) → suggest /plan-design-review
+  - Auto-reviewing a plan (all reviews at once) → suggest /autoplan
   - Creating a design system → suggest /design-consultation
   - Debugging errors → suggest /investigate
   - Testing the app → suggest /qa

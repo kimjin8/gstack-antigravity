@@ -416,6 +416,150 @@ describe('REVIEW_DASHBOARD resolver', () => {
   });
 });
 
+// ─── Test Coverage Audit Resolver Tests ─────────────────────
+
+describe('TEST_COVERAGE_AUDIT placeholders', () => {
+  const planSkill = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+  const shipSkill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+  const reviewSkill = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+
+  test('all three modes share codepath tracing methodology', () => {
+    const sharedPhrases = [
+      'Trace data flow',
+      'Diagram the execution',
+      'Quality scoring rubric',
+      '★★★',
+      '★★',
+      'GAP',
+    ];
+    for (const phrase of sharedPhrases) {
+      expect(planSkill).toContain(phrase);
+      expect(shipSkill).toContain(phrase);
+      expect(reviewSkill).toContain(phrase);
+    }
+    // Plan mode traces the plan, not a git diff
+    expect(planSkill).toContain('Trace every codepath in the plan');
+    expect(planSkill).not.toContain('git diff origin');
+    // Ship and review modes trace the diff
+    expect(shipSkill).toContain('Trace every codepath changed');
+    expect(reviewSkill).toContain('Trace every codepath changed');
+  });
+
+  test('all three modes include E2E decision matrix', () => {
+    for (const skill of [planSkill, shipSkill, reviewSkill]) {
+      expect(skill).toContain('E2E Test Decision Matrix');
+      expect(skill).toContain('→E2E');
+      expect(skill).toContain('→EVAL');
+    }
+  });
+
+  test('all three modes include regression rule', () => {
+    for (const skill of [planSkill, shipSkill, reviewSkill]) {
+      expect(skill).toContain('REGRESSION RULE');
+      expect(skill).toContain('IRON RULE');
+    }
+  });
+
+  test('all three modes include test framework detection', () => {
+    for (const skill of [planSkill, shipSkill, reviewSkill]) {
+      expect(skill).toContain('Test Framework Detection');
+      expect(skill).toContain('CLAUDE.md');
+    }
+  });
+
+  test('plan mode adds tests to plan + includes test plan artifact', () => {
+    expect(planSkill).toContain('Add missing tests to the plan');
+    expect(planSkill).toContain('eng-review-test-plan');
+    expect(planSkill).toContain('Test Plan Artifact');
+  });
+
+  test('ship mode auto-generates tests + includes before/after count', () => {
+    expect(shipSkill).toContain('Generate tests for uncovered paths');
+    expect(shipSkill).toContain('Before/after test count');
+    expect(shipSkill).toContain('30 code paths max');
+    expect(shipSkill).toContain('ship-test-plan');
+  });
+
+  test('review mode generates via Fix-First + gaps are INFORMATIONAL', () => {
+    expect(reviewSkill).toContain('Fix-First');
+    expect(reviewSkill).toContain('INFORMATIONAL');
+    expect(reviewSkill).toContain('Step 4.75');
+    expect(reviewSkill).toContain('subsumes the "Test Gaps" category');
+  });
+
+  test('plan mode does NOT include ship-specific content', () => {
+    expect(planSkill).not.toContain('Before/after test count');
+    expect(planSkill).not.toContain('30 code paths max');
+    expect(planSkill).not.toContain('ship-test-plan');
+  });
+
+  test('review mode does NOT include test plan artifact', () => {
+    expect(reviewSkill).not.toContain('Test Plan Artifact');
+    expect(reviewSkill).not.toContain('eng-review-test-plan');
+    expect(reviewSkill).not.toContain('ship-test-plan');
+  });
+
+  // Regression guard: ship output contains key phrases from before the refactor
+  test('ship SKILL.md regression guard — key phrases preserved', () => {
+    const regressionPhrases = [
+      '100% coverage is the goal',
+      'ASCII coverage diagram',
+      'processPayment',
+      'refundPayment',
+      'billing.test.ts',
+      'checkout.e2e.ts',
+      'COVERAGE:',
+      'QUALITY:',
+      'GAPS:',
+      'Code paths:',
+      'User flows:',
+    ];
+    for (const phrase of regressionPhrases) {
+      expect(shipSkill).toContain(phrase);
+    }
+  });
+});
+
+// --- {{TEST_FAILURE_TRIAGE}} resolver tests ---
+
+describe('TEST_FAILURE_TRIAGE resolver', () => {
+  const shipSkill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+
+  test('contains all 4 triage steps', () => {
+    expect(shipSkill).toContain('Step T1: Classify each failure');
+    expect(shipSkill).toContain('Step T2: Handle in-branch failures');
+    expect(shipSkill).toContain('Step T3: Handle pre-existing failures');
+    expect(shipSkill).toContain('Step T4: Execute the chosen action');
+  });
+
+  test('T1 includes classification criteria (in-branch vs pre-existing)', () => {
+    expect(shipSkill).toContain('In-branch');
+    expect(shipSkill).toContain('Likely pre-existing');
+    expect(shipSkill).toContain('git diff origin/');
+  });
+
+  test('T3 branches on REPO_MODE (solo vs collaborative)', () => {
+    expect(shipSkill).toContain('REPO_MODE');
+    expect(shipSkill).toContain('solo');
+    expect(shipSkill).toContain('collaborative');
+  });
+
+  test('solo mode offers fix-now, TODO, and skip options', () => {
+    expect(shipSkill).toContain('Investigate and fix now');
+    expect(shipSkill).toContain('Add as P0 TODO');
+    expect(shipSkill).toContain('Skip');
+  });
+
+  test('collaborative mode offers blame + assign option', () => {
+    expect(shipSkill).toContain('Blame + assign GitHub issue');
+    expect(shipSkill).toContain('gh issue create');
+  });
+
+  test('defaults ambiguous failures to in-branch (safety)', () => {
+    expect(shipSkill).toContain('When ambiguous, default to in-branch');
+  });
+});
+
 // --- {{PLAN_FILE_REVIEW_REPORT}} resolver tests ---
 
 describe('PLAN_FILE_REVIEW_REPORT resolver', () => {
@@ -611,11 +755,11 @@ describe('Codex generation (--host codex)', () => {
   test('Codex review step stripped from Codex-host ship and review', () => {
     const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(shipContent).not.toContain('codex review --base');
-    expect(shipContent).not.toContain('Investigate and fix');
+    expect(shipContent).not.toContain('CODEX_REVIEWS');
 
     const reviewContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     expect(reviewContent).not.toContain('codex review --base');
-    expect(reviewContent).not.toContain('Investigate and fix');
+    expect(reviewContent).not.toContain('CODEX_REVIEWS');
   });
 
   test('--host codex --dry-run freshness', () => {

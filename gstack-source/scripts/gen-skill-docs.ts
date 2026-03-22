@@ -152,6 +152,9 @@ _PROACTIVE=$(${ctx.paths.binDir}/gstack-config get proactive 2>/dev/null || echo
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 echo "PROACTIVE: $_PROACTIVE"
+source <(${ctx.paths.binDir}/gstack-repo-mode 2>/dev/null) || true
+REPO_MODE=\${REPO_MODE:-unknown}
+echo "REPO_MODE: $REPO_MODE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
@@ -261,6 +264,118 @@ AI-assisted coding makes the marginal cost of completeness near-zero. When you p
 - BAD: "We can skip edge case handling to save time." (Edge case handling costs minutes with CC.)
 - BAD: "Let's defer test coverage to a follow-up PR." (Tests are the cheapest lake to boil.)
 - BAD: Quoting only human-team effort: "This would take 2 weeks." (Say: "2 weeks human / ~1 hour CC.")`;
+}
+
+function generateRepoModeSection(): string {
+  return `## Repo Ownership Mode — See Something, Say Something
+
+\`REPO_MODE\` from the preamble tells you who owns issues in this repo:
+
+- **\`solo\`** — One person does 80%+ of the work. They own everything. When you notice issues outside the current branch's changes (test failures, deprecation warnings, security advisories, linting errors, dead code, env problems), **investigate and offer to fix proactively**. The solo dev is the only person who will fix it. Default to action.
+- **\`collaborative\`** — Multiple active contributors. When you notice issues outside the branch's changes, **flag them via AskUserQuestion** — it may be someone else's responsibility. Default to asking, not fixing.
+- **\`unknown\`** — Treat as collaborative (safer default — ask before fixing).
+
+**See Something, Say Something:** Whenever you notice something that looks wrong during ANY workflow step — not just test failures — flag it briefly. One sentence: what you noticed and its impact. In solo mode, follow up with "Want me to fix it?" In collaborative mode, just flag it and move on.
+
+Never let a noticed issue silently pass. The whole point is proactive communication.`;
+}
+
+function generateTestFailureTriage(): string {
+  return `## Test Failure Ownership Triage
+
+When tests fail, do NOT immediately stop. First, determine ownership:
+
+### Step T1: Classify each failure
+
+For each failing test:
+
+1. **Get the files changed on this branch:**
+   \`\`\`bash
+   git diff origin/<base>...HEAD --name-only
+   \`\`\`
+
+2. **Classify the failure:**
+   - **In-branch** if: the failing test file itself was modified on this branch, OR the test output references code that was changed on this branch, OR you can trace the failure to a change in the branch diff.
+   - **Likely pre-existing** if: neither the test file nor the code it tests was modified on this branch, AND the failure is unrelated to any branch change you can identify.
+   - **When ambiguous, default to in-branch.** It is safer to stop the developer than to let a broken test ship. Only classify as pre-existing when you are confident.
+
+   This classification is heuristic — use your judgment reading the diff and the test output. You do not have a programmatic dependency graph.
+
+### Step T2: Handle in-branch failures
+
+**STOP.** These are your failures. Show them and do not proceed. The developer must fix their own broken tests before shipping.
+
+### Step T3: Handle pre-existing failures
+
+Check \`REPO_MODE\` from the preamble output.
+
+**If REPO_MODE is \`solo\`:**
+
+Use AskUserQuestion:
+
+> These test failures appear pre-existing (not caused by your branch changes):
+>
+> [list each failure with file:line and brief error description]
+>
+> Since this is a solo repo, you're the only one who will fix these.
+>
+> RECOMMENDATION: Choose A — fix now while the context is fresh. Completeness: 9/10.
+> A) Investigate and fix now (human: ~2-4h / CC: ~15min) — Completeness: 10/10
+> B) Add as P0 TODO — fix after this branch lands — Completeness: 7/10
+> C) Skip — I know about this, ship anyway — Completeness: 3/10
+
+**If REPO_MODE is \`collaborative\` or \`unknown\`:**
+
+Use AskUserQuestion:
+
+> These test failures appear pre-existing (not caused by your branch changes):
+>
+> [list each failure with file:line and brief error description]
+>
+> This is a collaborative repo — these may be someone else's responsibility.
+>
+> RECOMMENDATION: Choose B — assign it to whoever broke it so the right person fixes it. Completeness: 9/10.
+> A) Investigate and fix now anyway — Completeness: 10/10
+> B) Blame + assign GitHub issue to the author — Completeness: 9/10
+> C) Add as P0 TODO — Completeness: 7/10
+> D) Skip — ship anyway — Completeness: 3/10
+
+### Step T4: Execute the chosen action
+
+**If "Investigate and fix now":**
+- Switch to /investigate mindset: root cause first, then minimal fix.
+- Fix the pre-existing failure.
+- Commit the fix separately from the branch's changes: \`git commit -m "fix: pre-existing test failure in <test-file>"\`
+- Continue with the workflow.
+
+**If "Add as P0 TODO":**
+- If \`TODOS.md\` exists, add the entry following the format in \`review/TODOS-format.md\` (or \`.claude/skills/review/TODOS-format.md\`).
+- If \`TODOS.md\` does not exist, create it with the standard header and add the entry.
+- Entry should include: title, the error output, which branch it was noticed on, and priority P0.
+- Continue with the workflow — treat the pre-existing failure as non-blocking.
+
+**If "Blame + assign GitHub issue" (collaborative only):**
+- Find who likely broke it. Check BOTH the test file AND the production code it tests:
+  \`\`\`bash
+  # Who last touched the failing test?
+  git log --format="%an (%ae)" -1 -- <failing-test-file>
+  # Who last touched the production code the test covers? (often the actual breaker)
+  git log --format="%an (%ae)" -1 -- <source-file-under-test>
+  \`\`\`
+  If these are different people, prefer the production code author — they likely introduced the regression.
+- Create a GitHub issue assigned to that person:
+  \`\`\`bash
+  gh issue create \\
+    --title "Pre-existing test failure: <test-name>" \\
+    --body "Found failing on branch <current-branch>. Failure is pre-existing.\\n\\n**Error:**\\n\`\`\`\\n<first 10 lines>\\n\`\`\`\\n\\n**Last modified by:** <author>\\n**Noticed by:** gstack /ship on <date>" \\
+    --assignee "<github-username>"
+  \`\`\`
+- If \`gh\` is not available or \`--assignee\` fails (user not in org, etc.), create the issue without assignee and note who should look at it in the body.
+- Continue with the workflow.
+
+**If "Skip":**
+- Continue with the workflow.
+- Note in output: "Pre-existing test failure skipped: <test-name>"`;
 }
 
 function generateSearchBeforeBuildingSection(ctx: TemplateContext): string {
@@ -387,6 +502,7 @@ function generatePreamble(ctx: TemplateContext): string {
     generateTelemetryPrompt(ctx),
     generateAskUserFormat(ctx),
     generateCompletenessSection(),
+    generateRepoModeSection(),
     generateSearchBeforeBuildingSection(ctx),
     generateContributorMode(),
     generateCompletionStatus(),
@@ -1354,6 +1470,373 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 ---`;
 }
 
+// ─── Test Coverage Audit ────────────────────────────────────
+//
+// Shared methodology for codepath tracing, ASCII diagrams, and test gap analysis.
+// Three modes, three placeholders, one inner function:
+//
+//   {{TEST_COVERAGE_AUDIT_PLAN}}   → plan-eng-review: adds missing tests to the plan
+//   {{TEST_COVERAGE_AUDIT_SHIP}}   → ship: auto-generates tests, coverage summary
+//   {{TEST_COVERAGE_AUDIT_REVIEW}} → review: generates tests via Fix-First (ASK)
+//
+//   ┌────────────────────────────────────────────────┐
+//   │  generateTestCoverageAuditInner(mode)          │
+//   │                                                │
+//   │  SHARED: framework detect, codepath trace,     │
+//   │    ASCII diagram, quality rubric, E2E matrix,  │
+//   │    regression rule                             │
+//   │                                                │
+//   │  plan:   edit plan file, write artifact        │
+//   │  ship:   auto-generate tests, write artifact   │
+//   │  review: Fix-First ASK, INFORMATIONAL gaps     │
+//   └────────────────────────────────────────────────┘
+
+type CoverageAuditMode = 'plan' | 'ship' | 'review';
+
+function generateTestCoverageAuditInner(mode: CoverageAuditMode): string {
+  const sections: string[] = [];
+
+  // ── Intro (mode-specific) ──
+  if (mode === 'ship') {
+    sections.push(`100% coverage is the goal — every untested path is a path where bugs hide and vibe coding becomes yolo coding. Evaluate what was ACTUALLY coded (from the diff), not what was planned.`);
+  } else if (mode === 'plan') {
+    sections.push(`100% coverage is the goal. Evaluate every codepath in the plan and ensure the plan includes tests for each one. If the plan is missing tests, add them — the plan should be complete enough that implementation includes full test coverage from the start.`);
+  } else {
+    sections.push(`100% coverage is the goal. Evaluate every codepath changed in the diff and identify test gaps. Gaps become INFORMATIONAL findings that follow the Fix-First flow.`);
+  }
+
+  // ── Test framework detection (shared) ──
+  sections.push(`
+### Test Framework Detection
+
+Before analyzing coverage, detect the project's test framework:
+
+1. **Read CLAUDE.md** — look for a \`## Testing\` section with test command and framework name. If found, use that as the authoritative source.
+2. **If CLAUDE.md has no testing section, auto-detect:**
+
+\`\`\`bash
+# Detect project runtime
+[ -f Gemfile ] && echo "RUNTIME:ruby"
+[ -f package.json ] && echo "RUNTIME:node"
+[ -f requirements.txt ] || [ -f pyproject.toml ] && echo "RUNTIME:python"
+[ -f go.mod ] && echo "RUNTIME:go"
+[ -f Cargo.toml ] && echo "RUNTIME:rust"
+# Check for existing test infrastructure
+ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pytest.ini phpunit.xml 2>/dev/null
+ls -d test/ tests/ spec/ __tests__/ cypress/ e2e/ 2>/dev/null
+\`\`\`
+
+3. **If no framework detected:**${mode === 'ship' ? ' falls through to the Test Framework Bootstrap step (Step 2.5) which handles full setup.' : ' still produce the coverage diagram, but skip test generation.'}`);
+
+  // ── Before/after count (ship only) ──
+  if (mode === 'ship') {
+    sections.push(`
+**0. Before/after test count:**
+
+\`\`\`bash
+# Count test files before any generation
+find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' | grep -v node_modules | wc -l
+\`\`\`
+
+Store this number for the PR body.`);
+  }
+
+  // ── Codepath tracing methodology (shared, with mode-specific source) ──
+  const traceSource = mode === 'plan'
+    ? `**Step 1. Trace every codepath in the plan:**
+
+Read the plan document. For each new feature, service, endpoint, or component described, trace how data will flow through the code — don't just list planned functions, actually follow the planned execution:`
+    : `**${mode === 'ship' ? '1' : 'Step 1'}. Trace every codepath changed** using \`git diff origin/<base>...HEAD\`:
+
+Read every changed file. For each one, trace how data flows through the code — don't just list functions, actually follow the execution:`;
+
+  const traceStep1 = mode === 'plan'
+    ? `1. **Read the plan.** For each planned component, understand what it does and how it connects to existing code.`
+    : `1. **Read the diff.** For each changed file, read the full file (not just the diff hunk) to understand context.`;
+
+  sections.push(`
+${traceSource}
+
+${traceStep1}
+2. **Trace data flow.** Starting from each entry point (route handler, exported function, event listener, component render), follow the data through every branch:
+   - Where does input come from? (request params, props, database, API call)
+   - What transforms it? (validation, mapping, computation)
+   - Where does it go? (database write, API response, rendered output, side effect)
+   - What can go wrong at each step? (null/undefined, invalid input, network failure, empty collection)
+3. **Diagram the execution.** For each changed file, draw an ASCII diagram showing:
+   - Every function/method that was added or modified
+   - Every conditional branch (if/else, switch, ternary, guard clause, early return)
+   - Every error path (try/catch, rescue, error boundary, fallback)
+   - Every call to another function (trace into it — does IT have untested branches?)
+   - Every edge: what happens with null input? Empty array? Invalid type?
+
+This is the critical step — you're building a map of every line of code that can execute differently based on input. Every branch in this diagram needs a test.`);
+
+  // ── User flow coverage (shared) ──
+  sections.push(`
+**${mode === 'ship' ? '2' : 'Step 2'}. Map user flows, interactions, and error states:**
+
+Code coverage isn't enough — you need to cover how real users interact with the changed code. For each changed feature, think through:
+
+- **User flows:** What sequence of actions does a user take that touches this code? Map the full journey (e.g., "user clicks 'Pay' → form validates → API call → success/failure screen"). Each step in the journey needs a test.
+- **Interaction edge cases:** What happens when the user does something unexpected?
+  - Double-click/rapid resubmit
+  - Navigate away mid-operation (back button, close tab, click another link)
+  - Submit with stale data (page sat open for 30 minutes, session expired)
+  - Slow connection (API takes 10 seconds — what does the user see?)
+  - Concurrent actions (two tabs, same form)
+- **Error states the user can see:** For every error the code handles, what does the user actually experience?
+  - Is there a clear error message or a silent failure?
+  - Can the user recover (retry, go back, fix input) or are they stuck?
+  - What happens with no network? With a 500 from the API? With invalid data from the server?
+- **Empty/zero/boundary states:** What does the UI show with zero results? With 10,000 results? With a single character input? With maximum-length input?
+
+Add these to your diagram alongside the code branches. A user flow with no test is just as much a gap as an untested if/else.`);
+
+  // ── Check branches against tests + quality rubric (shared) ──
+  sections.push(`
+**${mode === 'ship' ? '3' : 'Step 3'}. Check each branch against existing tests:**
+
+Go through your diagram branch by branch — both code paths AND user flows. For each one, search for a test that exercises it:
+- Function \`processPayment()\` → look for \`billing.test.ts\`, \`billing.spec.ts\`, \`test/billing_test.rb\`
+- An if/else → look for tests covering BOTH the true AND false path
+- An error handler → look for a test that triggers that specific error condition
+- A call to \`helperFn()\` that has its own branches → those branches need tests too
+- A user flow → look for an integration or E2E test that walks through the journey
+- An interaction edge case → look for a test that simulates the unexpected action
+
+Quality scoring rubric:
+- ★★★  Tests behavior with edge cases AND error paths
+- ★★   Tests correct behavior, happy path only
+- ★    Smoke test / existence check / trivial assertion (e.g., "it renders", "it doesn't throw")`);
+
+  // ── E2E test decision matrix (shared) ──
+  sections.push(`
+### E2E Test Decision Matrix
+
+When checking each branch, also determine whether a unit test or E2E/integration test is the right tool:
+
+**RECOMMEND E2E (mark as [→E2E] in the diagram):**
+- Common user flow spanning 3+ components/services (e.g., signup → verify email → first login)
+- Integration point where mocking hides real failures (e.g., API → queue → worker → DB)
+- Auth/payment/data-destruction flows — too important to trust unit tests alone
+
+**RECOMMEND EVAL (mark as [→EVAL] in the diagram):**
+- Critical LLM call that needs a quality eval (e.g., prompt change → test output still meets quality bar)
+- Changes to prompt templates, system instructions, or tool definitions
+
+**STICK WITH UNIT TESTS:**
+- Pure function with clear inputs/outputs
+- Internal helper with no side effects
+- Edge case of a single function (null input, empty array)
+- Obscure/rare flow that isn't customer-facing`);
+
+  // ── Regression rule (shared) ──
+  sections.push(`
+### REGRESSION RULE (mandatory)
+
+**IRON RULE:** When the coverage audit identifies a REGRESSION — code that previously worked but the diff broke — a regression test is ${mode === 'plan' ? 'added to the plan as a critical requirement' : 'written immediately'}. No AskUserQuestion. No skipping. Regressions are the highest-priority test because they prove something broke.
+
+A regression is when:
+- The diff modifies existing behavior (not new code)
+- The existing test suite (if any) doesn't cover the changed path
+- The change introduces a new failure mode for existing callers
+
+When uncertain whether a change is a regression, err on the side of writing the test.${mode !== 'plan' ? '\n\nFormat: commit as `test: regression test for {what broke}`' : ''}`);
+
+  // ── ASCII coverage diagram (shared) ──
+  sections.push(`
+**${mode === 'ship' ? '4' : 'Step 4'}. Output ASCII coverage diagram:**
+
+Include BOTH code paths and user flows in the same diagram. Mark E2E-worthy and eval-worthy paths:
+
+\`\`\`
+CODE PATH COVERAGE
+===========================
+[+] src/services/billing.ts
+    │
+    ├── processPayment()
+    │   ├── [★★★ TESTED] Happy path + card declined + timeout — billing.test.ts:42
+    │   ├── [GAP]         Network timeout — NO TEST
+    │   └── [GAP]         Invalid currency — NO TEST
+    │
+    └── refundPayment()
+        ├── [★★  TESTED] Full refund — billing.test.ts:89
+        └── [★   TESTED] Partial refund (checks non-throw only) — billing.test.ts:101
+
+USER FLOW COVERAGE
+===========================
+[+] Payment checkout flow
+    │
+    ├── [★★★ TESTED] Complete purchase — checkout.e2e.ts:15
+    ├── [GAP] [→E2E] Double-click submit — needs E2E, not just unit
+    ├── [GAP]         Navigate away during payment — unit test sufficient
+    └── [★   TESTED]  Form validation errors (checks render only) — checkout.test.ts:40
+
+[+] Error states
+    │
+    ├── [★★  TESTED] Card declined message — billing.test.ts:58
+    ├── [GAP]         Network timeout UX (what does user see?) — NO TEST
+    └── [GAP]         Empty cart submission — NO TEST
+
+[+] LLM integration
+    │
+    └── [GAP] [→EVAL] Prompt template change — needs eval test
+
+─────────────────────────────────
+COVERAGE: 5/13 paths tested (38%)
+  Code paths: 3/5 (60%)
+  User flows: 2/8 (25%)
+QUALITY:  ★★★: 2  ★★: 2  ★: 1
+GAPS: 8 paths need tests (2 need E2E, 1 needs eval)
+─────────────────────────────────
+\`\`\`
+
+**Fast path:** All paths covered → "${mode === 'ship' ? 'Step 3.4' : mode === 'review' ? 'Step 4.75' : 'Test review'}: All new code paths have test coverage ✓" Continue.`);
+
+  // ── Mode-specific action section ──
+  if (mode === 'plan') {
+    sections.push(`
+**Step 5. Add missing tests to the plan:**
+
+For each GAP identified in the diagram, add a test requirement to the plan. Be specific:
+- What test file to create (match existing naming conventions)
+- What the test should assert (specific inputs → expected outputs/behavior)
+- Whether it's a unit test, E2E test, or eval (use the decision matrix)
+- For regressions: flag as **CRITICAL** and explain what broke
+
+The plan should be complete enough that when implementation begins, every test is written alongside the feature code — not deferred to a follow-up.`);
+
+    // ── Test plan artifact (plan + ship) ──
+    sections.push(`
+### Test Plan Artifact
+
+After producing the coverage diagram, write a test plan artifact to the project directory so \`/qa\` and \`/qa-only\` can consume it as primary test input:
+
+\`\`\`bash
+source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+USER=$(whoami)
+DATETIME=$(date +%Y%m%d-%H%M%S)
+\`\`\`
+
+Write to \`~/.gstack/projects/{slug}/{user}-{branch}-eng-review-test-plan-{datetime}.md\`:
+
+\`\`\`markdown
+# Test Plan
+Generated by /plan-eng-review on {date}
+Branch: {branch}
+Repo: {owner/repo}
+
+## Affected Pages/Routes
+- {URL path} — {what to test and why}
+
+## Key Interactions to Verify
+- {interaction description} on {page}
+
+## Edge Cases
+- {edge case} on {page}
+
+## Critical Paths
+- {end-to-end flow that must work}
+\`\`\`
+
+This file is consumed by \`/qa\` and \`/qa-only\` as primary test input. Include only the information that helps a QA tester know **what to test and where** — not implementation details.`);
+  } else if (mode === 'ship') {
+    sections.push(`
+**5. Generate tests for uncovered paths:**
+
+If test framework detected (or bootstrapped in Step 2.5):
+- Prioritize error handlers and edge cases first (happy paths are more likely already tested)
+- Read 2-3 existing test files to match conventions exactly
+- Generate unit tests. Mock all external dependencies (DB, API, Redis).
+- For paths marked [→E2E]: generate integration/E2E tests using the project's E2E framework (Playwright, Cypress, Capybara, etc.)
+- For paths marked [→EVAL]: generate eval tests using the project's eval framework, or flag for manual eval if none exists
+- Write tests that exercise the specific uncovered path with real assertions
+- Run each test. Passes → commit as \`test: coverage for {feature}\`
+- Fails → fix once. Still fails → revert, note gap in diagram.
+
+Caps: 30 code paths max, 20 tests generated max (code + user flow combined), 2-min per-test exploration cap.
+
+If no test framework AND user declined bootstrap → diagram only, no generation. Note: "Test generation skipped — no test framework configured."
+
+**Diff is test-only changes:** Skip Step 3.4 entirely: "No new application code paths to audit."
+
+**6. After-count and coverage summary:**
+
+\`\`\`bash
+# Count test files after generation
+find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' | grep -v node_modules | wc -l
+\`\`\`
+
+For PR body: \`Tests: {before} → {after} (+{delta} new)\`
+Coverage line: \`Test Coverage Audit: N new code paths. M covered (X%). K tests generated, J committed.\``);
+
+    // ── Test plan artifact (ship mode) ──
+    sections.push(`
+### Test Plan Artifact
+
+After producing the coverage diagram, write a test plan artifact so \`/qa\` and \`/qa-only\` can consume it:
+
+\`\`\`bash
+source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+USER=$(whoami)
+DATETIME=$(date +%Y%m%d-%H%M%S)
+\`\`\`
+
+Write to \`~/.gstack/projects/{slug}/{user}-{branch}-ship-test-plan-{datetime}.md\`:
+
+\`\`\`markdown
+# Test Plan
+Generated by /ship on {date}
+Branch: {branch}
+Repo: {owner/repo}
+
+## Affected Pages/Routes
+- {URL path} — {what to test and why}
+
+## Key Interactions to Verify
+- {interaction description} on {page}
+
+## Edge Cases
+- {edge case} on {page}
+
+## Critical Paths
+- {end-to-end flow that must work}
+\`\`\``);
+  } else {
+    // review mode
+    sections.push(`
+**Step 5. Generate tests for gaps (Fix-First):**
+
+If test framework is detected and gaps were identified:
+- Classify each gap as AUTO-FIX or ASK per the Fix-First Heuristic:
+  - **AUTO-FIX:** Simple unit tests for pure functions, edge cases of existing tested functions
+  - **ASK:** E2E tests, tests requiring new test infrastructure, tests for ambiguous behavior
+- For AUTO-FIX gaps: generate the test, run it, commit as \`test: coverage for {feature}\`
+- For ASK gaps: include in the Fix-First batch question with the other review findings
+- For paths marked [→E2E]: always ASK (E2E tests are higher-effort and need user confirmation)
+- For paths marked [→EVAL]: always ASK (eval tests need user confirmation on quality criteria)
+
+If no test framework detected → include gaps as INFORMATIONAL findings only, no generation.
+
+**Diff is test-only changes:** Skip Step 4.75 entirely: "No new application code paths to audit."`);
+  }
+
+  return sections.join('\n');
+}
+
+function generateTestCoverageAuditPlan(_ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('plan');
+}
+
+function generateTestCoverageAuditShip(_ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('ship');
+}
+
+function generateTestCoverageAuditReview(_ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('review');
+}
+
 function generateSpecReviewLoop(_ctx: TemplateContext): string {
   return `## Spec Review Loop
 
@@ -1696,6 +2179,10 @@ const RESOLVERS: Record<string, (ctx: TemplateContext) => string> = {
   REVIEW_DASHBOARD: generateReviewDashboard,
   PLAN_FILE_REVIEW_REPORT: generatePlanFileReviewReport,
   TEST_BOOTSTRAP: generateTestBootstrap,
+  TEST_COVERAGE_AUDIT_PLAN: generateTestCoverageAuditPlan,
+  TEST_COVERAGE_AUDIT_SHIP: generateTestCoverageAuditShip,
+  TEST_COVERAGE_AUDIT_REVIEW: generateTestCoverageAuditReview,
+  TEST_FAILURE_TRIAGE: generateTestFailureTriage,
   SPEC_REVIEW_LOOP: generateSpecReviewLoop,
   DESIGN_SKETCH: generateDesignSketch,
   BENEFITS_FROM: generateBenefitsFrom,

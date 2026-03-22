@@ -141,12 +141,11 @@ Generates a comprehensive engineering retrospective analyzing commit history, wo
 When the user types `/retro`, run this skill.
 
 ## Arguments
-- `/retro` — default: last 7 days
-- `/retro 24h` — last 24 hours
-- `/retro 14d` — last 14 days
 - `/retro 30d` — last 30 days
 - `/retro compare` — compare current window vs prior same-length window
 - `/retro compare 14d` — compare with explicit window
+- `/retro global` — cross-project retro across all AI coding tools (7d default)
+- `/retro global 14d` — cross-project retro with explicit window
 
 ## Instructions
 
@@ -294,3 +293,9 @@ Save JSON snapshot to `.antigravity/projects/{slug}/retros/{today}-{next}.json`.
 - Use `origin/<default>`.
 - Local timezone.
 - No implementation.
+## Global Retrospective Mode
+
+When the user runs `/retro global`, skip the repo-scoped analysis and instead:
+1.  **Global Discovery:** Run `gstack-global-discover` (rebranded to Antigravity context) to locate all active projects across the system.
+2.  **Cross-Project Analysis:** For each discovered repo with active sessions in the time window, run the retro logic (git log, author breakdown, LOC).
+3.  **Unified Narrative:** Synthesize a single report covering wins, streaks, and habits across the entire engineering portfolio.
