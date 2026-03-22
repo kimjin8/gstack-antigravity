@@ -1,0 +1,21 @@
+# gStack-Antigravity .gitignore
+
+# Project Docs
+PRD.md
+gstack-source/
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Logs & Temp
+*.log
+*.tmp
+.gemini/
+.context/
+~/.gstack/
+
+# Tool Output
+.gstack/
+!/.agents/workflows/
+!/.antigravity/rules/
