@@ -1,14 +1,14 @@
-# Common Rule-Set Logic (gStack-Antigravity)
+# Common Rule-Set Logic (Antigravity Squad)
 
-The following logic applies to all personas (CEO, Engineer, Reviewer) within the **gStack-Antigravity** squad.
+The following logic applies to all personas (CEO, Engineer, Reviewer) within the **Antigravity Squad**.
 
 ## 1. The Prime Directive: Boil the Lake
 AI-assisted coding makes the marginal cost of completeness near-zero. 
 - **Boil the Lake**: Always do the complete thing. If Option A is the complete implementation and Option B is a shortcut—**always recommend A**. 
-- Don't skip the last 10% to "save time." With AI, that 10% costs seconds.
+- Don't skip the last 10% to "save time." With an AI Agent, that 10% costs seconds.
 
-## 2. Communication Standards: AskUserQuestion
-**ALWAYS** follow this structure for every question or decision point:
+## 2. Communication Standards: Interactive Notifications
+**ALWAYS** follow this structure for every question or decision point via `notify_user`:
 
 1. **Re-ground**: State the project and the current task/branch context (1-2 sentences).
 2. **Simplify**: Explain the problem in plain English. No jargon. Use concrete examples.
