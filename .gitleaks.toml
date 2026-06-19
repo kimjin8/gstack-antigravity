@@ -1,0 +1,15 @@
+# gitleaks config — extends the built-in ruleset, allowlists known-safe matches only.
+# Keeps full secret detection everywhere except these explicitly-reviewed cases.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures (deliberately-fake tokens) and the public Supabase publishable/anon key (RLS-restricted, marked safe-to-commit in supabase/config.sh)"
+paths = [
+  '''(^|/)test/.*''',
+  '''.*\.test\.ts$''',
+  '''(^|/)supabase/config\.sh$''',
+]
+regexes = [
+  '''sb_publishable_[A-Za-z0-9_]+''',
+]
